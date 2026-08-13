@@ -28,21 +28,30 @@ int main(int argc, char *argv[]) {
 
         cout<<"Relation: "<<relCatRecord[RELCAT_REL_NAME_INDEX].sVal<<endl;
 
-        // Traverse all attributes in ATTRCAT
-        for (int j = 0; j < attrCatHeader.numEntries; j++) {
+        int currentAttrBlock = ATTRCAT_BLOCK;
 
-            Attribute attrCatRecord[ATTRCAT_NO_ATTRS];
+        while(currentAttrBlock != -1)
+        {
+            RecBuffer attrCatBuffer(currentAttrBlock);
 
-            attrCatBuffer.getRecord(attrCatRecord, j);
+            HeadInfo attrHeader;
+            attrCatBuffer.getHeader(&attrHeader);
 
-            // Check whether this attribute belongs
-            // to the current relation
-            if (strcmp(attrCatRecord[ATTRCAT_REL_NAME_INDEX].sVal,relCatRecord[RELCAT_REL_NAME_INDEX].sVal) == 0) {
+            for(int j = 0; j < attrHeader.numEntries; j++)
+            {
+                Attribute attrCatRecord[ATTRCAT_NO_ATTRS];
 
-                const char *attrType =attrCatRecord[ATTRCAT_ATTR_TYPE_INDEX].nVal== NUMBER? "NUM": "STR";
+                attrCatBuffer.getRecord(attrCatRecord, j);
 
-                cout<<"  "<<attrCatRecord[ATTRCAT_ATTR_NAME_INDEX].sVal<<": "<<attrType<<endl;
+                if(strcmp(attrCatRecord[ATTRCAT_REL_NAME_INDEX].sVal,relCatRecord[RELCAT_REL_NAME_INDEX].sVal) == 0)
+                {
+                    const char *attrType =attrCatRecord[ATTRCAT_ATTR_TYPE_INDEX].nVal== NUMBER ? "NUM" : "STR";
+
+                    cout<<"  "<<attrCatRecord[ATTRCAT_ATTR_NAME_INDEX].sVal<<": "<<attrType<<endl;
+                }
             }
+
+            currentAttrBlock = attrHeader.rblock;
         }
 
         cout<<endl;
