@@ -1,100 +1,98 @@
 #include "Disk_Class/Disk.h"
-#include "Buffer/BlockBuffer.h"
-#include <cstring>
+#include "Cache/OpenRelTable.h"
+#include "Cache/RelCacheTable.h"
+#include "Cache/AttrCacheTable.h"
+
 #include <iostream>
+
 using namespace std;
 
 int main(int argc, char *argv[]) {
 
+    // Create the disk object.
     Disk disk_run;
 
-    // -----------------------------------------
-    // Rename Student.Class -> Student.Batch
-    // -----------------------------------------
+    // Create the static buffer.
+    StaticBuffer buffer;
 
-    int currentAttrBlock = ATTRCAT_BLOCK;
+    // Create the Open Relation Table.
+    // This initializes the relation and attribute caches.
+    OpenRelTable cache;
 
-    while(currentAttrBlock != -1) {
 
-        RecBuffer attrCatBuffer(currentAttrBlock);
+    /*
+     * We want to examine:
+     *
+     * RELCAT_RELID  -> Relation Catalog
+     * ATTRCAT_RELID -> Attribute Catalog
+     */
 
-        HeadInfo attrHeader;
-        attrCatBuffer.getHeader(&attrHeader);
+    for (int i = 0; i <= 1; i++) {
 
-        bool found = false;
+        // Structure to store relation catalog information.
+        RelCatEntry relCatEntry;
 
-        for(int i = 0; i < attrHeader.numEntries; i++) {
+        // Get relation information from RelCacheTable.
+        int status =
+            RelCacheTable::getRelCatEntry(i, &relCatEntry);
 
-            Attribute attrRecord[ATTRCAT_NO_ATTRS];
+        // Check whether getting the relation information succeeded.
+        if (status != SUCCESS) {
+            cout << "Error getting relation catalog entry for relId "<< i << endl;
 
-            attrCatBuffer.getRecord(attrRecord, i);
-
-            if(strcmp(attrRecord[ATTRCAT_REL_NAME_INDEX].sVal,"Students") == 0
-               &&
-               strcmp(attrRecord[ATTRCAT_ATTR_NAME_INDEX].sVal,"class") == 0)
-            {
-                strcpy(attrRecord[ATTRCAT_ATTR_NAME_INDEX].sVal,"batch");
-
-                attrCatBuffer.setRecord(attrRecord, i);
-
-                cout << "Attribute renamed successfully\n\n";
-
-                found = true;
-                break;
-            }
+            continue;
         }
 
-        if(found)
-            break;
+        // Print the relation name.
+        cout << "Relation: "<< relCatEntry.relName<< endl;
 
-        currentAttrBlock = attrHeader.rblock;
-    }
 
-    // -----------------------------------------
-    // Print all relations and attributes
-    // -----------------------------------------
+        /*
+         * Now get every attribute of this relation.
+         *
+         * If numAttrs = 4,
+         * offsets will be:
+         *
+         * 0
+         * 1
+         * 2
+         * 3
+         */
 
-    RecBuffer relCatBuffer(RELCAT_BLOCK);
+        for (int j = 0; j < relCatEntry.numAttrs; j++) {
 
-    HeadInfo relCatHeader;
-    relCatBuffer.getHeader(&relCatHeader);
+            // Structure to store attribute information.
+            AttrCatEntry attrCatEntry;
 
-    for(int i = 0; i < relCatHeader.numEntries; i++) {
+            // Get the attribute information from AttrCacheTable.
+            status =AttrCacheTable::getAttrCatEntry(i,j,&attrCatEntry);
 
-        Attribute relCatRecord[RELCAT_NO_ATTRS];
+            // Check whether getting the attribute succeeded.
+            if (status != SUCCESS) {
 
-        relCatBuffer.getRecord(relCatRecord, i);
-
-        cout << "Relation: "<< relCatRecord[RELCAT_REL_NAME_INDEX].sVal<< endl;
-
-        int currentAttrBlock = ATTRCAT_BLOCK;
-
-        while(currentAttrBlock != -1) {
-
-            RecBuffer attrCatBuffer(currentAttrBlock);
-
-            HeadInfo attrHeader;
-            attrCatBuffer.getHeader(&attrHeader);
-
-            for(int j = 0; j < attrHeader.numEntries; j++) {
-
-                Attribute attrCatRecord[ATTRCAT_NO_ATTRS];
-
-                attrCatBuffer.getRecord(attrCatRecord, j);
-
-                if(strcmp(attrCatRecord[ATTRCAT_REL_NAME_INDEX].sVal,relCatRecord[RELCAT_REL_NAME_INDEX].sVal) == 0)
-                {
-                    const char *attrType =(attrCatRecord[ATTRCAT_ATTR_TYPE_INDEX].nVal == NUMBER)? "NUM": "STR";
-
-                    cout << "  "<< attrCatRecord[ATTRCAT_ATTR_NAME_INDEX].sVal<< ": "<< attrType<< endl;
-                }
+                cout << "Error getting attribute "<< j<< " for relation "<< i<< endl;
+                continue;
             }
 
-            currentAttrBlock = attrHeader.rblock;
+
+            // Print attribute name and type.
+            const char *attrType;
+
+            if (attrCatEntry.attrType == NUMBER) {
+                attrType = "NUM";
+            }
+            else {
+                attrType = "STR";
+            }
+
+            cout << "  "<< attrCatEntry.attrName<< ": "<< attrType << endl;
         }
 
         cout << endl;
     }
 
+
     return 0;
 }
+
+
