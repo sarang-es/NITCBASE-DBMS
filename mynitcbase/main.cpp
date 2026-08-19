@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
      * ATTRCAT_RELID -> Attribute Catalog
      */
 
-    for (int i = 0; i <= 1; i++) {
+    for (int i = 0; i <= 2; i++) {
 
         // Structure to store relation catalog information.
         RelCatEntry relCatEntry;
