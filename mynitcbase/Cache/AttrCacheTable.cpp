@@ -51,6 +51,35 @@ int AttrCacheTable::getAttrCatEntry(
     return E_ATTRNOTEXIST;
 }
 
+// with Attrname
+int AttrCacheTable::getAttrCatEntry(int relId,char attrName[ATTR_SIZE],AttrCatEntry* attrCatBuf) {
+
+    // Check whether relId is valid.
+    if (relId < 0 || relId >= MAX_OPEN) {
+        return E_OUTOFBOUND;
+    }
+
+    // Check whether relation is open.
+    if (attrCache[relId] == nullptr) {
+        return E_RELNOTOPEN;
+    }
+
+    // Traverse the linked list of attributes.
+    for (AttrCacheEntry* entry = attrCache[relId];entry != nullptr;entry = entry->next) {
+
+        // Compare attribute names.
+        if (strcmp(entry->attrCatEntry.attrName,attrName) == 0) {
+
+            *attrCatBuf = entry->attrCatEntry;
+
+            return SUCCESS;
+        }
+    }
+
+    // No matching attribute found.
+    return E_ATTRNOTEXIST;
+}
+
 
 /*
  * Converts an Attribute Catalog record

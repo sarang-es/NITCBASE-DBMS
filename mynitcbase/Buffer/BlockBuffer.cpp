@@ -111,6 +111,64 @@ int RecBuffer::setRecord(union Attribute *rec, int slotNum) {
 
 }
 
+int RecBuffer::getSlotMap(unsigned char *slotMap) {
+
+    unsigned char *bufferPtr;
+
+    // Load block into static buffer
+    int ret = loadBlockAndGetBufferPtr(&bufferPtr);
+
+    if(ret != SUCCESS) {
+        return ret;
+    }
+
+    HeadInfo head;
+
+    // Read block header
+    ret = getHeader(&head);
+
+    if(ret != SUCCESS) {
+        return ret;
+    }
+
+    int slotCount = head.numSlots;
+
+    // Slot map begins immediately after header
+    unsigned char *slotMapInBuffer =
+        bufferPtr + HEADER_SIZE;
+
+    // Copy slot map into caller's array
+    memcpy(
+        slotMap,
+        slotMapInBuffer,
+        slotCount
+    );
+
+    return SUCCESS;
+}
+
+// make comparing easy for different attribute types
+int compareAttrs(union Attribute attr1,union Attribute attr2,int attrType) {
+
+    double diff;
+
+    if (attrType == STRING) {
+        diff = strcmp(attr1.sVal,attr2.sVal);
+    }
+    else {
+        diff = attr1.nVal - attr2.nVal;
+    }
+    if (diff > 0) {
+        return 1;
+    }
+    if (diff < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+
 int BlockBuffer::loadBlockAndGetBufferPtr(unsigned char **buffPtr) {
     
     // check if the block is already in the static buffer
@@ -131,8 +189,6 @@ int BlockBuffer::loadBlockAndGetBufferPtr(unsigned char **buffPtr) {
         if(status!=SUCCESS)
             return status;
     }
-
-
 
     // Set the buffer pointer to the selected buffer slot
     *buffPtr=StaticBuffer::blocks[bufferNum];
