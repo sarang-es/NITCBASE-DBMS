@@ -74,41 +74,57 @@ int RecBuffer::getRecord(union Attribute *rec, int slotNum) {
     return SUCCESS;
 }
 
+
+
 int RecBuffer::setRecord(union Attribute *rec, int slotNum) {
-    struct HeadInfo head;
-
-    //Get the Block Number
-    int status = this->getHeader(&head);
-
-    if(status!= SUCCESS){
-        return status;
-    }
 
     unsigned char *bufferPtr;
 
-    //Load the block into the static buffer and get a pointer to it
-    status = loadBlockAndGetBufferPtr(&bufferPtr);
+    // Load the block into the buffer
+    int retVal = loadBlockAndGetBufferPtr(&bufferPtr);
 
-    if(status!= SUCCESS){
-        return status;
+    if (retVal != SUCCESS) {
+        return retVal;
     }
 
-    int attrCount = head.numAttrs;
-    int slotCount = head.numSlots;
-    int recordSize = attrCount * ATTR_SIZE;
+    // Get the block header
+    struct HeadInfo head;
 
-    //find the location of the record in the block
+    retVal = getHeader(&head);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    // Get number of attributes and slots
+    int numAttrs = head.numAttrs;
+    int numSlots = head.numSlots;
+
+    // Check whether slot number is valid
+    if (slotNum < 0 || slotNum >= numSlots) {
+        return E_OUTOFBOUND;
+    }
+
+    // Size of one record
+    int recordSize = ATTR_SIZE * numAttrs;
+
     unsigned char *slotPointer =
-        bufferPtr +
-        HEADER_SIZE +
-        slotCount +
-        (recordSize * slotNum);
+        bufferPtr
+        + HEADER_SIZE
+        + numSlots
+        + (slotNum * recordSize);
 
-    //Copy the record into the block
-    memcpy(slotPointer, rec, recordSize);
+    // Copy record into the buffer
+    memcpy(slotPointer,rec,recordSize);
+
+    // Mark the block as dirty
+    retVal = StaticBuffer::setDirtyBit(this->blockNum);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
 
     return SUCCESS;
-
 }
 
 int RecBuffer::getSlotMap(unsigned char *slotMap) {
@@ -168,29 +184,65 @@ int compareAttrs(union Attribute attr1,union Attribute attr2,int attrType) {
     return 0;
 }
 
-
 int BlockBuffer::loadBlockAndGetBufferPtr(unsigned char **buffPtr) {
+
+    // Check whether the block is already present in the buffer.
+    int bufferNum = StaticBuffer::getBufferNum(this->blockNum);
     
-    // check if the block is already in the static buffer
-    int bufferNum=StaticBuffer::getBufferNum(this->blockNum);
+    // Case 1: Block is already present in the buffer
+    if (bufferNum != E_BLOCKNOTINBUFFER) {
 
-    // Block is not currently in the static buffer, so we need to load it
-    if(bufferNum==E_BLOCKNOTINBUFFER){
+        /*
+         * The block has just been accessed, so make it the
+         * most recently used block.
+         * Its timestamp becomes 0.
+         * Increase timestamps of all other occupied buffers.
+         */
+        for (int bufferIndex = 0;bufferIndex < BUFFER_CAPACITY; bufferIndex++) {
 
-        // get a free buffer slot
-        bufferNum=StaticBuffer::getFreeBuffer(this->blockNum);
+            if (StaticBuffer::metainfo[bufferIndex].free == false) {
 
-        if(bufferNum==E_OUTOFBOUND)
+                if (bufferIndex == bufferNum) {
+                    StaticBuffer::metainfo[bufferIndex].timeStamp = 0;
+                }
+                else {
+                    StaticBuffer::metainfo[bufferIndex].timeStamp++;
+                }
+            }
+        }
+    }
+    
+    // Case 2: Block is NOT present in the buffer
+     
+    else {
+    //  Find a free buffer or evict the LRU buffer.
+        bufferNum = StaticBuffer::getFreeBuffer(this->blockNum);
+
+        /*
+         * getFreeBuffer() returns E_OUTOFBOUND if the
+         * block number is invalid.
+         */
+        if (bufferNum == E_OUTOFBOUND) {
             return E_OUTOFBOUND;
+        }
 
-        // Read disk Block into selected buffer slot
-        int status=Disk::readBlock(StaticBuffer::blocks[bufferNum],this->blockNum);
+        /*
+         * Read the requested disk block into the selected
+         * buffer slot.
+         */
+        int retVal = Disk::readBlock(StaticBuffer::blocks[bufferNum],this->blockNum);
 
-        if(status!=SUCCESS)
-            return status;
+        if (retVal != SUCCESS) {
+            return retVal;
+        }
     }
 
-    // Set the buffer pointer to the selected buffer slot
-    *buffPtr=StaticBuffer::blocks[bufferNum];
+    /*
+     * Give the caller the address of the buffer containing
+     * the requested block.
+     */
+    *buffPtr = StaticBuffer::blocks[bufferNum];
+
+
     return SUCCESS;
 }
