@@ -5,8 +5,23 @@ BlockBuffer::BlockBuffer(int blockNum){
     this->blockNum=blockNum;
 }
 
+int BlockBuffer::getBlockNum() {
+    return this->blockNum;
+}
+
+BlockBuffer::BlockBuffer(char blockType) {
+
+    int retVal = getFreeBlock(blockType);
+
+    this->blockNum = retVal;
+}
+
+
 RecBuffer::RecBuffer(int blockNum)
     : BlockBuffer(blockNum) {
+}
+
+RecBuffer::RecBuffer() : BlockBuffer('R') {
 }
 
 int BlockBuffer::getHeader(struct HeadInfo *head) {
@@ -118,6 +133,102 @@ int RecBuffer::setRecord(union Attribute *rec, int slotNum) {
     memcpy(slotPointer,rec,recordSize);
 
     // Mark the block as dirty
+    retVal = StaticBuffer::setDirtyBit(this->blockNum);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    return SUCCESS;
+}
+
+int RecBuffer::setSlotMap(unsigned char *slotMap) {
+
+    unsigned char *bufferPtr;
+
+    // Get the starting address of the buffer containing the block
+    int retVal = loadBlockAndGetBufferPtr(&bufferPtr);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    // Get the header of the block
+    struct HeadInfo head;
+
+    retVal = getHeader(&head);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    int numSlots = head.numSlots;
+
+    // Slot map starts immediately after the header
+    unsigned char *slotMapInBuffer =
+        bufferPtr + HEADER_SIZE;
+
+    // Copy the given slot map into the buffer
+    memcpy(slotMapInBuffer, slotMap, numSlots);
+
+    // Mark the block as dirty
+    retVal = StaticBuffer::setDirtyBit(this->blockNum);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    return SUCCESS;
+}
+
+int BlockBuffer::setHeader(struct HeadInfo *head) {
+
+    unsigned char *bufferPtr;
+
+    // Get the address of the buffer containing this block
+    int retVal = loadBlockAndGetBufferPtr(&bufferPtr);
+
+    // If loading the block failed, return the error
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    // Treat the beginning of the block as a HeadInfo structure
+    struct HeadInfo *bufferHeader = (struct HeadInfo *)bufferPtr;
+
+    // Copy the header fields
+    bufferHeader->blockType = head->blockType;
+    bufferHeader->pblock = head->pblock;
+    bufferHeader->lblock = head->lblock;
+    bufferHeader->rblock = head->rblock;
+    bufferHeader->numEntries = head->numEntries;
+    bufferHeader->numAttrs = head->numAttrs;
+    bufferHeader->numSlots = head->numSlots;
+
+    // Mark the block as dirty because we modified it
+    retVal = StaticBuffer::setDirtyBit(this->blockNum);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    return SUCCESS;
+}
+
+int BlockBuffer::setBlockType(int blockType) {
+
+    unsigned char *bufferPtr;
+
+    int retVal = loadBlockAndGetBufferPtr(&bufferPtr);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    *((int32_t *)bufferPtr) = blockType;
+
+    StaticBuffer::blockAllocMap[this->blockNum] = blockType;
+
     retVal = StaticBuffer::setDirtyBit(this->blockNum);
 
     if (retVal != SUCCESS) {
@@ -245,4 +356,58 @@ int BlockBuffer::loadBlockAndGetBufferPtr(unsigned char **buffPtr) {
 
 
     return SUCCESS;
+}
+
+int BlockBuffer::getFreeBlock(int blockType) {
+
+    // Find a free block in the disk
+    int freeBlockNum = -1;
+
+    for (int i = 0; i < DISK_BLOCKS; i++) {
+        if (StaticBuffer::blockAllocMap[i] == UNUSED_BLK) {
+            freeBlockNum = i;
+            break;
+        }
+    }
+
+    // No free block available
+    if (freeBlockNum == -1) {
+        return E_DISKFULL;
+    }
+
+    // Store the block number in this object
+    this->blockNum = freeBlockNum;
+
+    // Get a free buffer in StaticBuffer
+    int bufferNum = StaticBuffer::getFreeBuffer(this->blockNum);
+
+    if (bufferNum == E_OUTOFBOUND) {
+        return E_OUTOFBOUND;
+    }
+
+    // Initialize the header
+    struct HeadInfo head;
+
+    head.pblock = -1;
+    head.lblock = -1;
+    head.rblock = -1;
+    head.numEntries = 0;
+    head.numAttrs = 0;
+    head.numSlots = 0;
+
+    int retVal = setHeader(&head);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    // Set the block type
+    retVal = setBlockType(blockType);
+
+    if (retVal != SUCCESS) {
+        return retVal;
+    }
+
+    // Return the block number
+    return freeBlockNum;
 }

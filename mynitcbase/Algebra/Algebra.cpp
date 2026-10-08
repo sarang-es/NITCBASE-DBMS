@@ -158,3 +158,88 @@ int Algebra::select(
 
     return SUCCESS;
 }
+
+int Algebra::insert(char relName[ATTR_SIZE], int nAttrs, char record[][ATTR_SIZE])
+{
+    // RELATIONCAT and ATTRIBUTECAT cannot be modified.
+    if (strcmp(relName, RELCAT_RELNAME) == 0 ||
+        strcmp(relName, ATTRCAT_RELNAME) == 0)
+    {
+        return E_NOTPERMITTED;
+    }
+
+    // Get the relation id.
+    int relId = OpenRelTable::getRelId(relName);
+
+    // Check whether the relation is open.
+    if (relId == E_RELNOTOPEN)
+    {
+        return E_RELNOTOPEN;
+    }
+
+    // Get the relation catalog entry from the Relation Cache.
+    RelCatEntry relCatEntry;
+
+    int retVal =
+        RelCacheTable::getRelCatEntry(relId, &relCatEntry);
+
+    if (retVal != SUCCESS)
+    {
+        return retVal;
+    }
+
+    // Check whether the number of attributes matches.
+    if (relCatEntry.numAttrs != nAttrs)
+    {
+        return E_NATTRMISMATCH;
+    }
+
+    // Array to store the converted record.
+    union Attribute recordValues[nAttrs];
+
+    /*
+     * Convert the input character strings into
+     * Attribute values.
+     */
+    for (int i = 0; i < nAttrs; i++)
+    {
+        // Get the attribute catalog entry.
+        AttrCatEntry attrCatEntry;
+
+        retVal =
+            AttrCacheTable::getAttrCatEntry(
+                relId,
+                i,
+                &attrCatEntry
+            );
+
+        if (retVal != SUCCESS)
+        {
+            return retVal;
+        }
+
+        int type = attrCatEntry.attrType;
+
+        if (type == NUMBER)
+        {
+            // Check whether the input is a valid number.
+            if (!isNumber(record[i]))
+            {
+                return E_ATTRTYPEMISMATCH;
+            }
+
+            // Convert string to number.
+            recordValues[i].nVal = atof(record[i]);
+        }
+        else if (type == STRING)
+        {
+            // Copy string into the Attribute.
+            strcpy(recordValues[i].sVal, record[i]);
+        }
+    }
+
+    // Insert the converted record into the relation.
+    retVal = BlockAccess::insert(relId, recordValues);
+
+    return retVal;
+}

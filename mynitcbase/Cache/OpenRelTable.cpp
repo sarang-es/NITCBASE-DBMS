@@ -170,6 +170,32 @@ int OpenRelTable::closeRel(int relId)
         return E_RELNOTOPEN;
     }
 
+    if (RelCacheTable::relCache[relId]->dirty)
+    {
+    RelCatEntry relCatEntry;
+
+    relCatEntry =
+        RelCacheTable::relCache[relId]->relCatEntry;
+
+    union Attribute record[RELCAT_NO_ATTRS];
+
+    RelCacheTable::relCatEntryToRecord(
+        &relCatEntry,
+        record
+    );
+
+    RecId recId =
+        RelCacheTable::relCache[relId]->recId;
+
+    RecBuffer relCatBlock(recId.block);
+
+    int retVal =
+        relCatBlock.setRecord(record, recId.slot);
+
+    if (retVal != SUCCESS)
+        return retVal;
+    }
+
     // Free the relation cache entry.
     if (RelCacheTable::relCache[relId] != nullptr)
     {

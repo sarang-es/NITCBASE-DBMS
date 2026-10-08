@@ -31,6 +31,23 @@ int RelCacheTable::getRelCatEntry(int relId, RelCatEntry* relCatBuf) {
     return SUCCESS;
 }
 
+int RelCacheTable::setRelCatEntry(int relId, RelCatEntry *relCatBuf) {
+
+    if (relId < 0 || relId >= MAX_OPEN) {
+        return E_OUTOFBOUND;
+    }
+
+    if (relCache[relId] == nullptr) {
+        return E_RELNOTOPEN;
+    }
+
+    relCache[relId]->relCatEntry = *relCatBuf;
+
+    relCache[relId]->dirty = true;
+
+    return SUCCESS;
+}
+
 
 /*
  * Convert a Relation Catalog record
@@ -63,6 +80,18 @@ void RelCacheTable::recordToRelCatEntry(
     relCatEntry->numSlotsPerBlk =(int)record[RELCAT_NO_SLOTS_PER_BLOCK_INDEX].nVal;
 }
 
+void RelCacheTable::relCatEntryToRecord(
+    RelCatEntry *relCatEntry,
+    union Attribute record[RELCAT_NO_ATTRS])
+{
+    strcpy(record[0].sVal, relCatEntry->relName);
+
+    record[1].nVal = relCatEntry->numAttrs;
+    record[2].nVal = relCatEntry->numRecs;
+    record[3].nVal = relCatEntry->firstBlk;
+    record[4].nVal = relCatEntry->lastBlk;
+    record[5].nVal = relCatEntry->numSlotsPerBlk;
+}
 
 // get the searchidex to *search index
 int RelCacheTable::getSearchIndex(int relId, RecId* searchIndex) {
