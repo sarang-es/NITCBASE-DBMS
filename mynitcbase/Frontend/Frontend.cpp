@@ -1,7 +1,6 @@
 #include "Frontend.h"
 
 #include <cstring>
-#include <iostream>
 
 int Frontend::create_table(char relname[ATTR_SIZE], int no_attrs, char attributes[][ATTR_SIZE],
                            int type_attrs[]) {
@@ -23,13 +22,11 @@ int Frontend::close_table(char relname[ATTR_SIZE]) {
 }
 
 int Frontend::alter_table_rename(char relname_from[ATTR_SIZE], char relname_to[ATTR_SIZE]) {
-  // Schema::renameRel
   return Schema::renameRel(relname_from, relname_to);
 }
 
 int Frontend::alter_table_rename_column(char relname[ATTR_SIZE], char attrname_from[ATTR_SIZE],
                                         char attrname_to[ATTR_SIZE]) {
-  // Schema::renameAttr
   return Schema::renameAttr(relname, attrname_from, attrname_to);
 }
 
@@ -44,7 +41,6 @@ int Frontend::drop_index(char relname[ATTR_SIZE], char attrname[ATTR_SIZE]) {
 }
 
 int Frontend::insert_into_table_values(char relname[ATTR_SIZE], int attr_count, char attr_values[][ATTR_SIZE]) {
-  // Algebra::insert
   return Algebra::insert(relname, attr_count, attr_values);
 }
 
@@ -61,6 +57,7 @@ int Frontend::select_attrlist_from_table(char relname_source[ATTR_SIZE], char re
 
 int Frontend::select_from_table_where(char relname_source[ATTR_SIZE], char relname_target[ATTR_SIZE],
                                       char attribute[ATTR_SIZE], int op, char value[ATTR_SIZE]) {
+  // Algebra::select
   return Algebra::select(relname_source, relname_target, attribute, op, value);
 }
 

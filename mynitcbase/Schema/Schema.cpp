@@ -4,152 +4,150 @@
 #include <cstring>
 
 int Schema::openRel(char relName[ATTR_SIZE]) {
-  int ret = OpenRelTable::openRel(relName);
-
-  // the OpenRelTable::openRel() function returns the rel-id if successful
-  // a valid rel-id will be within the range 0 <= relId < MAX_OPEN and any
-  // error codes will be negative
-  if(ret >= 0){
-    return SUCCESS;
-  }
-  //otherwise it returns an error message
+    int ret = OpenRelTable::openRel(relName);
+    if(ret >= 0) {
+        return SUCCESS;
+    }
     return ret;
+    // OpenRelTable::openrel returns relid which is positive is successful, otherwise a negative error value
 }
 
 int Schema::closeRel(char relName[ATTR_SIZE]) {
-  if (strcmp(relName, RELCAT_RELNAME) == 0 || strcmp(relName, ATTRCAT_RELNAME) == 0) {
-    return E_NOTPERMITTED;
-  }
-
-  // this function returns the rel-id of a relation if it is open or
-  // E_RELNOTOPEN if it is not. we will implement this later.
-  int relId = OpenRelTable::getRelId(relName);
-
-  if (relId== E_RELNOTOPEN) {
-    return E_RELNOTOPEN;
-  }
-
-  // close the relation 
-  return OpenRelTable::closeRel(relId);
-}
-
-int Schema::renameRel(char oldRelName[ATTR_SIZE], char newRelName[ATTR_SIZE]) {
-
-    // Cannot rename the system catalogs
-    if (strcmp(oldRelName, RELCAT_RELNAME) == 0 ||
-        strcmp(oldRelName, ATTRCAT_RELNAME) == 0 ||
-        strcmp(newRelName, RELCAT_RELNAME) == 0 ||
-        strcmp(newRelName, ATTRCAT_RELNAME) == 0) {
-
+    // rel cat and attr cat should not be closed
+    if(strcmp(relName, RELCAT_RELNAME)==0 || strcmp(relName, ATTRCAT_RELNAME)==0) {
         return E_NOTPERMITTED;
     }
 
-    // Check whether the relation is currently open
-    if (OpenRelTable::getRelId(oldRelName) != E_RELNOTOPEN) {
+    // get the relId of relation
+    // this call returns relId if relation is open, else an error E_RELNOTOPEN
+    int relId = OpenRelTable::getRelId(relName);
+
+    if(relId==E_RELNOTOPEN) {
+        return E_RELNOTOPEN;
+    }
+
+    return OpenRelTable::closeRel(relId);
+}
+
+int Schema::renameRel(char oldRelName[ATTR_SIZE], char newRelName[ATTR_SIZE]) {
+    if(
+            !strcmp(oldRelName, RELCAT_RELNAME) || 
+            !strcmp(oldRelName, ATTRCAT_RELNAME) ||
+            !strcmp(newRelName, RELCAT_RELNAME) ||
+            !strcmp(newRelName, ATTRCAT_RELNAME)
+    ) {
+        return E_NOTPERMITTED;
+    }
+
+    int ret = OpenRelTable::getRelId(oldRelName);
+
+    if(ret != E_RELNOTOPEN) {
         return E_RELOPEN;
     }
 
-    // Rename the relation in the catalogs
     int retVal = BlockAccess::renameRelation(oldRelName, newRelName);
-
     return retVal;
 }
 
-int Schema::createRel(char relName[], int nAttrs, char attrs[][ATTR_SIZE], int attrtype[]) {
+int Schema::renameAttr(char relName[ATTR_SIZE], char oldAttrName[ATTR_SIZE], char newAttrName[ATTR_SIZE]) {
+        if(
+            !strcmp(relName, RELCAT_RELNAME) || 
+            !strcmp(relName, ATTRCAT_RELNAME)
+    ) {
+        return E_NOTPERMITTED;
+    }
 
-    // declare variable relNameAsAttribute of type Attribute
-    // copy the relName into relNameAsAttribute.sVal
+    int ret = OpenRelTable::getRelId(relName);
+
+    if(ret != E_RELNOTOPEN) {
+        return E_RELOPEN;
+    }
+
+    int retVal = BlockAccess::renameAttribute(relName, oldAttrName, newAttrName);
+    return retVal;
+}
+
+int Schema::createRel(char relName[], int nAttrs, char attrs[][ATTR_SIZE], int attrType[]) {
     Attribute relNameAsAttribute;
     strcpy(relNameAsAttribute.sVal, relName);
 
-    // Reset the searchIndex and search RELCAT for a relation with same name
+    RecId targetRelId;
     RelCacheTable::resetSearchIndex(RELCAT_RELID);
-    RecId targetRelId = BlockAccess::linearSearch(
-        RELCAT_RELID, RELCAT_ATTR_RELNAME, relNameAsAttribute, EQ
-    );
 
-    // if a relation with name `relName` already exists, return E_RELEXIST
-    if (targetRelId.block != -1 || targetRelId.slot != -1) {
+    //check if the relation is already present
+    char relationName[ATTR_SIZE];
+    strcpy(relationName, RELCAT_ATTR_RELNAME);
+    RecId ret = BlockAccess::linearSearch(RELCAT_RELID, relationName, relNameAsAttribute, EQ);
+
+    if(ret.block != -1 && ret.slot != -1) {
         return E_RELEXIST;
     }
 
-    // compare every pair of attribute names for duplicates
-    for (int i = 0; i < nAttrs; i++) {
-        for (int j = i + 1; j < nAttrs; j++) {
-            if (strcmp(attrs[i], attrs[j]) == 0) {
+    for(int i=0; i<nAttrs; i++) {
+        for(int j=i+1; j<nAttrs; j++) {
+            if(!strcmp(attrs[i], attrs[j]))
                 return E_DUPLICATEATTR;
-            }
         }
     }
 
-    // Build and insert the RELATIONCAT record
+    // Lets insert metadata of this new relation into relation catalog
     Attribute relCatRecord[RELCAT_NO_ATTRS];
-    strcpy(relCatRecord[RELCAT_REL_NAME_INDEX].sVal,        relName);
-    relCatRecord[RELCAT_NO_ATTRIBUTES_INDEX].nVal          = nAttrs;
-    relCatRecord[RELCAT_NO_RECORDS_INDEX].nVal             = 0;
-    relCatRecord[RELCAT_FIRST_BLOCK_INDEX].nVal            = -1;
-    relCatRecord[RELCAT_LAST_BLOCK_INDEX].nVal             = -1;
-    relCatRecord[RELCAT_NO_SLOTS_PER_BLOCK_INDEX].nVal     = floor(2016.0 / (16 * nAttrs + 1));
+
+    strcpy(relCatRecord[RELCAT_REL_NAME_INDEX].sVal, relName);
+    relCatRecord[RELCAT_NO_ATTRIBUTES_INDEX].nVal = nAttrs;
+    relCatRecord[RELCAT_NO_RECORDS_INDEX].nVal = 0; // no records yet
+    relCatRecord[RELCAT_FIRST_BLOCK_INDEX].nVal = -1;
+    relCatRecord[RELCAT_LAST_BLOCK_INDEX].nVal = -1;
+    // for each record, 16*k bytes for record and 1 byte for its slotmap entry
+    relCatRecord[RELCAT_NO_SLOTS_PER_BLOCK_INDEX].nVal = floor((2016/(16*nAttrs + 1)));
 
     int retVal = BlockAccess::insert(RELCAT_RELID, relCatRecord);
-    if (retVal != SUCCESS) {
-        return retVal;
-    }
 
-    // Insert one ATTRIBUTECAT record per attribute
-    for (int i = 0; i < nAttrs; i++) {
+    // Let's insert metadata of attributes to attribute catalog
+    for(int i=0; i<nAttrs; i++) {
         Attribute attrCatRecord[ATTRCAT_NO_ATTRS];
-        strcpy(attrCatRecord[ATTRCAT_REL_NAME_INDEX].sVal,  relName);
+        strcpy(attrCatRecord[ATTRCAT_REL_NAME_INDEX].sVal, relName);
         strcpy(attrCatRecord[ATTRCAT_ATTR_NAME_INDEX].sVal, attrs[i]);
-        attrCatRecord[ATTRCAT_ATTR_TYPE_INDEX].nVal         = attrtype[i];
-        attrCatRecord[ATTRCAT_PRIMARY_FLAG_INDEX].nVal      = -1;
-        attrCatRecord[ATTRCAT_ROOT_BLOCK_INDEX].nVal        = -1;
-        attrCatRecord[ATTRCAT_OFFSET_INDEX].nVal            = i;
+        attrCatRecord[ATTRCAT_ATTR_TYPE_INDEX].nVal = attrType[i];
+        attrCatRecord[ATTRCAT_PRIMARY_FLAG_INDEX].nVal = -1;
+        attrCatRecord[ATTRCAT_ROOT_BLOCK_INDEX].nVal = -1;
+        attrCatRecord[ATTRCAT_OFFSET_INDEX].nVal = i;
 
         retVal = BlockAccess::insert(ATTRCAT_RELID, attrCatRecord);
-        if (retVal != SUCCESS) {
-            // rollback: delete the partially created relation
+        /* if attribute catalog insert fails:
+             delete the relation by calling deleteRel(targetrel) of schema layer
+             return E_DISKFULL
+            (this is necessary because we had already created the relation catalog entry which needs to be removed)
+        */
+        if(retVal != SUCCESS) {
             Schema::deleteRel(relName);
             return E_DISKFULL;
         }
     }
 
     return SUCCESS;
+
 }
 
-int Schema::deleteRel(char *relName) {
-
-    // catalog relations cannot be deleted
-    if (strcmp(relName, RELCAT_RELNAME) == 0 ||
-        strcmp(relName, ATTRCAT_RELNAME) == 0) {
+int Schema::deleteRel(char relName[]) {
+    if(!strcmp(relName, RELCAT_RELNAME) || !strcmp(relName, ATTRCAT_RELNAME)) {
         return E_NOTPERMITTED;
     }
 
-    // if the relation is currently open, it cannot be deleted
     int relId = OpenRelTable::getRelId(relName);
-    if (relId != E_RELNOTOPEN) {
+
+    if(relId != E_RELNOTOPEN) {
         return E_RELOPEN;
     }
 
-    // delete the relation from the catalogs and free its blocks
-    return BlockAccess::deleteRelation(relName);
-}
+    int ret = BlockAccess::deleteRelation(relName);
 
-int Schema::renameAttr(char *relName, char *oldAttrName, char *newAttrName) {
+    return ret;
 
-    // Cannot modify the system catalogs
-    if (strcmp(relName, RELCAT_RELNAME) == 0 || strcmp(relName, ATTRCAT_RELNAME) == 0) {
-
-        return E_NOTPERMITTED;
-    }
-
-    // Check whether the relation is currently open
-    if (OpenRelTable::getRelId(relName) != E_RELNOTOPEN) {
-        return E_RELOPEN;
-    }
-
-    // Rename the attribute in the Attribute Catalog
-    int retVal = BlockAccess::renameAttribute(relName,oldAttrName,newAttrName);
-
-    return retVal;
+     /* the only that should be returned from deleteRelation() is E_RELNOTEXIST.
+       The deleteRelation call may return E_OUTOFBOUND from the call to
+       loadBlockAndGetBufferPtr, but if your implementation so far has been
+       correct, it should not reach that point. That error could only occur
+       if the BlockBuffer was initialized with an invalid block number.
+    */
 }
