@@ -366,9 +366,9 @@ int BlockAccess::insert(int relId, Attribute *record) {
 int BlockAccess::search(int relId, Attribute *record, char attrName[ATTR_SIZE], Attribute attrVal, int op) {
     // this function is like a cover for linearSearch to return a record instead of recId
     RecId recId;
-    BlockAccess::linearSearch(relId, attrName, attrVal, op);
+    recId = BlockAccess::linearSearch(relId, attrName, attrVal, op);
 
-    if(recId.block==-1 && recId.block==-1) {
+    if(recId.block==-1 && recId.slot==-1) {
         return E_NOTFOUND;
     }
 
@@ -532,6 +532,76 @@ int BlockAccess::deleteRelation(char relName[ATTR_SIZE]) {
     RelCacheTable::getRelCatEntry(ATTRCAT_RELID, &relCatEntry);
     relCatEntry.numRecs -= numberOfAttributesDeleted;
     RelCacheTable::setRelCatEntry(ATTRCAT_RELID, &relCatEntry);
+
+    return SUCCESS;
+}
+
+int BlockAccess::project(int relId, Attribute *record) {
+
+    // Get the previous search index
+    RecId prevRecId;
+    RelCacheTable::getSearchIndex(relId, &prevRecId);
+
+    int block, slot;
+
+    if (prevRecId.block == -1 && prevRecId.slot == -1) {
+
+        // Start a new projection from the first record block
+        RelCatEntry relCatEntry;
+        RelCacheTable::getRelCatEntry(relId, &relCatEntry);
+
+        block = relCatEntry.firstBlk;
+        slot = 0;
+    }
+    else {
+
+        // Continue from the record returned previously
+        block = prevRecId.block;
+        slot = prevRecId.slot + 1;
+    }
+
+    // Find the next occupied slot
+    while (block != -1) {
+
+        RecBuffer recBuffer(block);
+
+        HeadInfo header;
+        recBuffer.getHeader(&header);
+
+        unsigned char slotMap[header.numSlots];
+        recBuffer.getSlotMap(slotMap);
+
+        if (slot >= header.numSlots) {
+
+            // Move to the next record block
+            block = header.rblock;
+            slot = 0;
+        }
+        else if (slotMap[slot] == SLOT_UNOCCUPIED) {
+
+            // Skip an empty slot
+            slot++;
+        }
+        else {
+
+            // Found the next record
+            break;
+        }
+    }
+
+    if (block == -1) {
+        return E_NOTFOUND;
+    }
+
+    // Store the record ID
+    RecId nextRecId{block, slot};
+
+    // Update the relation's search index
+    RelCacheTable::setSearchIndex(relId, &nextRecId);
+
+    // Copy the record into the caller's buffer
+    RecBuffer recBuffer(block);
+    recBuffer.getRecord(record, slot);
 
     return SUCCESS;
 }

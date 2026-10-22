@@ -60,3 +60,36 @@ void AttrCacheTable::attrCatEntryToRecord(AttrCatEntry *attrCatEntry, union Attr
     record[ATTRCAT_PRIMARY_FLAG_INDEX].nVal = (double)attrCatEntry->primaryFlag;
     record[ATTRCAT_ROOT_BLOCK_INDEX].nVal = (double)attrCatEntry->rootBlock;
 }
+
+
+int AttrCacheTable::resetSearchIndex(int relId, char attrName[ATTR_SIZE]) {
+    AttrCacheEntry *entry = attrCache[relId];
+
+    while (entry != nullptr) {
+        if (strcmp(entry->attrCatEntry.attrName, attrName) == 0) {
+            entry->searchIndex.block = -1;
+            entry->searchIndex.index = -1;
+            return SUCCESS;
+        }
+
+        entry = entry->next;
+    }
+
+    return E_ATTRNOTEXIST;
+}
+
+int AttrCacheTable::resetSearchIndex(int relId, int attrOffset) {
+    AttrCacheEntry *entry = attrCache[relId];
+
+    while (entry != nullptr) {
+        if (entry->attrCatEntry.offset == attrOffset) {
+            entry->searchIndex.block = -1;
+            entry->searchIndex.index = -1;
+            return SUCCESS;
+        }
+
+        entry = entry->next;
+    }
+
+    return E_ATTRNOTEXIST;
+}
