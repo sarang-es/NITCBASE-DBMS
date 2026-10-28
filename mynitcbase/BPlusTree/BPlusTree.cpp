@@ -1,238 +1,218 @@
 #include "BPlusTree.h"
+
 #include <cstring>
 
-RecId BPlusTree::bPlusSearch(int relId, char attrName[ATTR_SIZE],
-                             Attribute attrVal, int op) {
 
-    
-    
-    // Store the search index for attrName.
+RecId BPlusTree::bPlusSearch(int relId, char attrName[], Attribute attrVal, int op) {
+    // declare searchIndex variable to store the search index
     IndexId searchIndex;
 
-    // Get the current search index.
     int ret = AttrCacheTable::getSearchIndex(relId, attrName, &searchIndex);
-    if (ret != SUCCESS) {
-        return RecId{-1, -1};
+    if(ret != SUCCESS) {
+        return RecId{-1,-1};
     }
 
-    // Load the attribute catalog entry.
+    // get searchIndex of attrName for rootblock
     AttrCatEntry attrCatEntry;
     ret = AttrCacheTable::getAttrCatEntry(relId, attrName, &attrCatEntry);
-    if (ret != SUCCESS) {
-        return RecId{-1, -1};
+    if(ret != SUCCESS) {
+        return RecId{-1,-1};
     }
 
-    // Variables used during the search.
-    int block, index;
+    int block=-1, index=-1;
 
-    if (searchIndex.block == -1 && searchIndex.index == -1) {
-        // Search is being performed for the first time.
+    if(searchIndex.block == -1 && searchIndex.index == -1) {
+        // search is done for the first time
         block = attrCatEntry.rootBlock;
         index = 0;
-
-        // No B+ tree exists for this attribute.
-        if (block == -1) {
-            return RecId{-1, -1};
+        
+        // if the attribute is not indexed
+        if(block == -1) {
+            return RecId{-1,-1};
         }
     } else {
-        // Resume searching from the next entry.
-        block = searchIndex.block;
-        index = searchIndex.index + 1;
+        /*a valid searchIndex points to an entry in the leaf index of the attribute's
+        B+ Tree which had previously satisfied the op for the given attrVal.*/
 
-        // Load the current leaf block.
+        block = searchIndex.block;
+        index = searchIndex.index + 1; // resume from NEXT index
+
+        // load that block into leaf
         IndLeaf leaf(block);
+
+        // declare leafHead for the header of this leaf block
         HeadInfo leafHead;
 
-        ret = leaf.getHeader(&leafHead);
-        if (ret != SUCCESS) {
-            return RecId{-1, -1};
-        }
+        leaf.getHeader(&leafHead);
 
-        // If the current leaf is exhausted, move to the next leaf.
-        if (index >= leafHead.numEntries) {
+        if(index >= leafHead.numEntries) {
+            // this block is completely searched, go to next block
             block = leafHead.rblock;
             index = 0;
 
-            // End of the linked list.
-            if (block == -1) {
-                return RecId{-1, -1};
+            //if there is no block left
+            if(block == -1) {
+                return RecId{-1,-1};
             }
         }
     }
 
-    /************************************************************
-     * Traverse the internal nodes to reach the appropriate leaf.
-     ************************************************************/
+    /******  Traverse through all the internal nodes according to value
+             of attrVal and the operator op                             ******/
 
-    while (StaticBuffer::getStaticBlockType(block) == IND_INTERNAL) {
-        // Load the internal block.
+    /* (This section is only needed when
+        - search restarts from the root block (when searchIndex is reset by caller)
+        - root is not a leaf
+        If there was a valid search index, then we are already at a leaf block
+        and the test condition in the following loop will fail)
+    */
+
+    while(StaticBuffer::getStaticBlockType(block)==IND_INTERNAL) {
+        
         IndInternal internalBlk(block);
+
         HeadInfo intHead;
+        internalBlk.getHeader(&intHead);
 
-        ret = internalBlk.getHeader(&intHead);
-        if (ret != SUCCESS) {
-            return RecId{-1, -1};
-        }
-
+        //declare intEntry which will be used to store an entry of internalBlk.
         InternalEntry intEntry;
 
-        if (op == NE || op == LT || op == LE) {
-            /*
-             * NE, LT and LE start from the leftmost leaf.
-             * Therefore, follow the leftmost child.
-             */
+        if(op == NE || op == LT || op == LE) {
+             /*
+            - NE: need to search the entire linked list of leaf indices of the B+ Tree,
+            starting from the leftmost leaf index. Thus, always move to the left.
 
-            ret = internalBlk.getEntry(&intEntry, 0);
-            if (ret != SUCCESS) {
-                return RecId{-1, -1};
-            }
+            - LT and LE: the attribute values are arranged in ascending order in the
+            leaf indices of the B+ Tree. Values that satisfy these conditions, if
+            any exist, will always be found in the left-most leaf index. Thus,
+            always move to the left.
+            */
 
+            // load entry in the first slot of the block into intEntry
+            // using IndInternal::getEntry().
+
+            internalBlk.getEntry(&intEntry, 0);
             block = intEntry.lChild;
         } else {
+
+             /*
+            - EQ, GT and GE: move to the left child of the first entry that is
+            greater than (or equal to) attrVal
+            (we are trying to find the first entry that satisfies the condition.
+            since the values are in ascending order we move to the left child which
+            might contain more entries that satisfy the condition)
+            */
+
             /*
-             * For EQ and GE, find the first entry whose key
-             * is greater than or equal to attrVal.
-             *
-             * For GT, find the first entry whose key is
-             * strictly greater than attrVal.
-             */
+             traverse through all entries of internalBlk and find an entry that
+             satisfies the condition.
+             if op == EQ or GE, then intEntry.attrVal >= attrVal
+             if op == GT, then intEntry.attrVal > attrVal
+             Hint: the helper function compareAttrs() can be used for comparing
+            */
 
-            bool found = false;
+            int i = 0;
+            bool entryFound = false;
+            while(i < intHead.numEntries) {
 
-            for (int i = 0; i < intHead.numEntries; i++) {
-                ret = internalBlk.getEntry(&intEntry, i);
-                if (ret != SUCCESS) {
-                    return RecId{-1, -1};
-                }
-                
-                int cmpVal = compareAttrs(
-                    intEntry.attrVal,
-                    attrVal,
-                    attrCatEntry.attrType
-                );
-                
-
-                if (((op == EQ || op == GE) && cmpVal >= 0) ||
-                    (op == GT && cmpVal > 0)) {
-
-                    // Follow the left child of the matching entry.
-                    block = intEntry.lChild;
-                    found = true;
+                int ret = internalBlk.getEntry(&intEntry, i);
+                int cmpVal = compareAttrs(intEntry.attrVal, attrVal, attrCatEntry.attrType);
+                 if (
+                    (op == EQ && cmpVal >= 0) ||
+                    (op == GE && cmpVal >= 0) ||
+                    (op == GT && cmpVal > 0)
+                )
+                {
+                    entryFound = true;
                     break;
                 }
+
+                    i++;
             }
-
-            if (!found) {
-                /*
-                 * No suitable separator was found.
-                 * Follow the right child of the last entry.
-                 */
-
-                if (intHead.numEntries <= 0) {
-                    return RecId{-1, -1};
+                if(entryFound) {
+                    // move to the left side to find the first entry that satisfies this condition
+                    block = intEntry.lChild;
+                } else {
+                    // nothing satisfies the condition. move out of the block
+                    internalBlk.getEntry(&intEntry, intHead.numEntries - 1);
+                    block = intEntry.rChild;
                 }
-
-                ret = internalBlk.getEntry(
-                    &intEntry,
-                    intHead.numEntries - 1
-                );
-
-                if (ret != SUCCESS) {
-                    return RecId{-1, -1};
-                }
-
-                block = intEntry.rChild;
-            }
         }
     }
 
-    /************************************************************
-     * Search the leaf entries for a matching record.
-     ************************************************************/
+    // NOTE: `block` now has the block number of a leaf index block.
 
-    while (block != -1) {
-        // Load the current leaf block.
+    // on a fresh search, internal-node descent leaves `index` at a position
+    // from the internal block's entry array; reset it before scanning the leaf.
+    // on a resume search, index = searchIndex.index + 1 is already correct.
+
+
+     /******  Identify the first leaf index entry from the current position
+                that satisfies our condition (moving right)             ******/
+
+     while (block != -1) {
+        // load the block into leafBlk using IndLeaf::IndLeaf().
         IndLeaf leafBlk(block);
+
+        // load the header to leafHead using BlockBuffer::getHeader().
         HeadInfo leafHead;
+        leafBlk.getHeader(&leafHead);
 
-        ret = leafBlk.getHeader(&leafHead);
-        if (ret != SUCCESS) {
-            return RecId{-1, -1};
-        }
-
-        // Read each entry from the current leaf.
+        // declare leafEntry which will be used to store an entry from leafBlk
         Index leafEntry;
 
-        while (index < leafHead.numEntries) {
-            ret = leafBlk.getEntry(&leafEntry, index);
-            if (ret != SUCCESS) {
-                return RecId{-1, -1};
-            }
+        // while (/*index < numEntries in leafBlk*/) 
+        while (index < leafHead.numEntries)
+        {
+            // load entry corresponding to block and index into leafEntry
+            // using IndLeaf::getEntry().
+            leafBlk.getEntry(&leafEntry, index);
 
-            // Compare the indexed attribute with the search value.
-            int cmpVal = compareAttrs(
-                leafEntry.attrVal,
-                attrVal,
-                attrCatEntry.attrType
-            );
-            
+            // comparison between leafEntry's attribute value and input attrVal using compareAttrs()
+            int cmpVal = compareAttrs(leafEntry.attrVal, attrVal, attrCatEntry.attrType); 
 
-            // Check whether this entry satisfies the operator.
-            if ((op == EQ && cmpVal == 0) ||
+            if (
+                (op == EQ && cmpVal == 0) ||
                 (op == LE && cmpVal <= 0) ||
+                (op == GE && cmpVal >= 0) ||
                 (op == LT && cmpVal < 0) ||
                 (op == GT && cmpVal > 0) ||
-                (op == GE && cmpVal >= 0) ||
-                (op == NE && cmpVal != 0)) {
+                (op == NE && cmpVal != 0)
+            ) {
+                // (entry satisfying the condition found)
 
-                // Save the location of this matching index entry.
-                searchIndex.block = block;
-                searchIndex.index = index;
+                // set search index to {block, index}
+                searchIndex = IndexId{block, index};
+                AttrCacheTable::setSearchIndex(relId, attrName, &searchIndex);
 
-                ret = AttrCacheTable::setSearchIndex(
-                    relId,
-                    attrName,
-                    &searchIndex
-                );
-
-                if (ret != SUCCESS) {
-                    return RecId{-1, -1};
-                }
-            
-                
-
-                // Return the location of the actual table record.
+                // return the recId {leafEntry.block, leafEntry.slot}.
                 return RecId{leafEntry.block, leafEntry.slot};
-            } else if ((op == EQ || op == LE || op == LT) &&
-                       cmpVal > 0) {
-                /*
-                 * Leaf keys are sorted in ascending order.
-                 * Once a key exceeds attrVal, no later key
-                 * can satisfy EQ, LE or LT.
-                 */
-                return RecId{-1, -1};
+            } 
+            else if ((op == EQ || op == LE || op == LT) && cmpVal > 0) 
+            {
+                // future entries will not satisfy EQ, LE, LT since the values
+                // are arranged in ascending order in the leaves 
+
+                return RecId {-1, -1};
             }
 
-            // Examine the next entry.
+            // search next index.
             ++index;
         }
 
-
-        // EQ, LT and LE can stop when no match exists in this leaf.
-        // GT and GE may need to continue into the next leaf.
-        if (op == EQ || op == LT || op == LE) {
+        // only for NE operation do we have to check the entire linked list;
+        // for all the other op it is guaranteed that the block being searched
+        // will have an entry, if it exists, satisying that op. 
+        if (op != NE) {
             break;
         }
 
-        block = leafHead.rblock;
-        index = 0;
-
-        // NE must examine the remaining leaf blocks.
+        // block = next block in the linked list, i.e., the rblock in leafHead.
+        // update index to 0.
         block = leafHead.rblock;
         index = 0;
     }
 
-    // No matching record was found.
+    // no entry satisying the op was found; return the recId {-1,-1}
     return RecId{-1, -1};
 }
-
