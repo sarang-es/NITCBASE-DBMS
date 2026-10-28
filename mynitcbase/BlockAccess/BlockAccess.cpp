@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+
 RecId BlockAccess::linearSearch(int relId, char attrName[ATTR_SIZE], union Attribute attrVal, int op) {
     // get the searchIndex from relational cache table - this contains the position where last search ended
     RecId prevRecID;
@@ -82,6 +83,8 @@ RecId BlockAccess::linearSearch(int relId, char attrName[ATTR_SIZE], union Attri
 
             // compare using function and decide based on the argument operator
             int cmpVal = compareAttrs(record[offset], attrVal, type);
+            
+
             if (
                 (op == EQ && cmpVal == 0) ||
                 (op == NE && cmpVal != 0) ||
@@ -363,22 +366,50 @@ int BlockAccess::insert(int relId, Attribute *record) {
     return SUCCESS;
 }
 
-int BlockAccess::search(int relId, Attribute *record, char attrName[ATTR_SIZE], Attribute attrVal, int op) {
-    // this function is like a cover for linearSearch to return a record instead of recId
-    RecId recId;
-    recId = BlockAccess::linearSearch(relId, attrName, attrVal, op);
 
-    if(recId.block==-1 && recId.slot==-1) {
+int BlockAccess::search(int relId, Attribute *record, char attrName[ATTR_SIZE],
+                        Attribute attrVal, int op) {
+    // Store the record ID of the matching record
+    RecId recId;
+
+    // Get the attribute catalog entry from the attribute cache
+    AttrCatEntry attrCatEntry;
+    int ret = AttrCacheTable::getAttrCatEntry(relId, attrName, &attrCatEntry);
+
+    // If getting the attribute catalog entry failed, return the error
+    if (ret != SUCCESS) {
+        return ret;
+    }
+
+    // Get the root block of the index
+    int rootBlock = attrCatEntry.rootBlock;
+
+    // If no index exists, perform a linear search
+    if (rootBlock == -1) {
+        recId = linearSearch(relId, attrName, attrVal, op);
+    }
+    // Otherwise, search using the B+ tree index
+    else {
+        recId = BPlusTree::bPlusSearch(relId, attrName, attrVal, op);
+    }
+
+    // If no matching record was found, return an error
+    if (recId.block == -1 && recId.slot == -1) {
         return E_NOTFOUND;
     }
 
-    //instantiate a Recbuffer object and use it to get record into record variable
+    // Retrieve the record using its record ID
     RecBuffer recBuffer(recId.block);
+    int ret2 = recBuffer.getRecord(record, recId.slot);
 
-    recBuffer.getRecord(record, recId.slot);
+    // If retrieving the record failed, return the error
+    if (ret2 != SUCCESS) {
+        return ret2;
+    }
 
     return SUCCESS;
 }
+
 
 int BlockAccess::deleteRelation(char relName[ATTR_SIZE]) {
 
