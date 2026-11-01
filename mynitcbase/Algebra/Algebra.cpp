@@ -6,6 +6,7 @@
 #include <iostream>
 using namespace std;
 
+extern int count;
 
 bool isNumber(char *str) {
     int len;
@@ -27,7 +28,7 @@ the arguments of the function are
 - strVal - the value that we want to compare against (represented as a string)
 */
 
-int count=0;
+
 int Algebra::select(char srcRel[ATTR_SIZE], char targetRel[ATTR_SIZE], char attr[ATTR_SIZE], int op, char strVal[ATTR_SIZE]) {
     
     int srcRelId = OpenRelTable::getRelId(srcRel);
@@ -95,6 +96,8 @@ int Algebra::select(char srcRel[ATTR_SIZE], char targetRel[ATTR_SIZE], char attr
     RelCacheTable::resetSearchIndex(srcRelId);
     AttrCacheTable::resetSearchIndex(srcRelId, attr);
 
+    count=0;
+
     //task: repeatedly call BlockAccess::Search function till no records left
     while(BlockAccess::search(srcRelId, record, attr, attrVal, op)==SUCCESS) {
         
@@ -113,6 +116,8 @@ int Algebra::select(char srcRel[ATTR_SIZE], char targetRel[ATTR_SIZE], char attr
     if(ret != SUCCESS) {
         return ret;
     }
+
+    
     return SUCCESS;
 }
 

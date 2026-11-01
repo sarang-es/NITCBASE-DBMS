@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 
-extern int count; // Declare the external variable
+int count = 0;
 
 // constructor 1
 BlockBuffer::BlockBuffer(char blockType) {
