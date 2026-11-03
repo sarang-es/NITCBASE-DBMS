@@ -33,16 +33,16 @@ IndBuffer::IndBuffer(char blockType) : BlockBuffer(blockType) {}
 // Constructor 2: call the corresponding parent constructor
 IndBuffer::IndBuffer(int blockNum) : BlockBuffer(blockNum) {}
 
-//IndInternal Constructor 1
-IndInternal::IndInternal() : IndBuffer('I') {}
+// Allocate a new internal index block.
+IndInternal::IndInternal() : IndBuffer((char)IND_INTERNAL) {}
 
-//IndInternal Constructor 2
+// Open an existing internal index block by its block number.
 IndInternal::IndInternal(int blockNum) : IndBuffer(blockNum) {}
 
-//Indleaf Constructor 1
-IndLeaf::IndLeaf() : IndBuffer('L') {} // L for Leaf
+// Allocate a new leaf index block.
+IndLeaf::IndLeaf() : IndBuffer((char)IND_LEAF) {}
 
-// Indleaf Constructor 2
+// Open an existing leaf index block by its block number.
 IndLeaf::IndLeaf(int blockNum) : IndBuffer(blockNum) {}
 
 
@@ -55,7 +55,10 @@ int BlockBuffer::getHeader(struct HeadInfo *head) {
         return ret; // if it is error, return as it is
     }
 
-    // populate the entries in HeadInfo
+    // Populate every header field. B+ tree split propagation depends on pblock
+    // to distinguish a root node from a non-root node.
+    memcpy(&head->blockType, bufferPtr, 4);
+    memcpy(&head->pblock, bufferPtr + 4, 4);
     memcpy(&head->lblock, bufferPtr + 8, 4);
     memcpy(&head->rblock, bufferPtr + 12, 4);
     memcpy(&head->numEntries, bufferPtr + 16, 4);
@@ -384,9 +387,51 @@ int IndLeaf::getEntry(void *ptr, int indexNum) {
 }
 
 int IndInternal::setEntry(void *ptr, int indexNum){
-    return 0;
+    // Reject an entry position outside the internal node's key range.
+    if (indexNum < 0 || indexNum >= MAX_KEYS_INTERNAL) {
+        return E_OUTOFBOUND;
+    }
+
+    // Ensure the requested disk block is present in the buffer.
+    unsigned char *bufferPtr;
+    int ret = loadBlockAndGetBufferPtr(&bufferPtr);
+    if (ret != SUCCESS) {
+        return ret;
+    }
+
+    InternalEntry *entry = static_cast<InternalEntry *>(ptr);
+
+    // Internal entries use a 20-byte stride: the right child pointer occupies
+    // the first four bytes of the next entry (the next entry's left child).
+    int entryOffset = HEADER_SIZE + indexNum * (LCHILD_SIZE + ATTR_SIZE);
+    unsigned char *dst = bufferPtr + entryOffset;
+
+    // Write the left child, key value, and right child into their disk fields.
+    memcpy(dst, &entry->lChild, sizeof(entry->lChild));
+    memcpy(dst + LCHILD_SIZE, &entry->attrVal, ATTR_SIZE);
+    memcpy(dst + LCHILD_SIZE + ATTR_SIZE, &entry->rChild, sizeof(entry->rChild));
+
+    // Mark the buffer dirty so the modified index node is written to disk.
+    return StaticBuffer::setDirtyBit(blockNum);
 }
 
 int IndLeaf::setEntry(void *ptr, int indexNum) {
-    return 0;
+    // Reject an entry position outside the leaf node's key range.
+    if (indexNum < 0 || indexNum >= MAX_KEYS_LEAF) {
+        return E_OUTOFBOUND;
+    }
+
+    // Ensure the requested disk block is present in the buffer.
+    unsigned char *bufferPtr;
+    int ret = loadBlockAndGetBufferPtr(&bufferPtr);
+    if (ret != SUCCESS) {
+        return ret;
+    }
+
+    // Leaf entries have a fixed-size on-disk representation.
+    int entryOffset = HEADER_SIZE + indexNum * LEAF_ENTRY_SIZE;
+    memcpy(bufferPtr + entryOffset, ptr, LEAF_ENTRY_SIZE);
+
+    // Mark the buffer dirty so the new key and record id are persisted.
+    return StaticBuffer::setDirtyBit(blockNum);
 }

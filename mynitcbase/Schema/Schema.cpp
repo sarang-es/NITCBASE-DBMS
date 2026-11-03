@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "../BPlusTree/BPlusTree.h"
+
 int Schema::openRel(char relName[ATTR_SIZE]) {
     int ret = OpenRelTable::openRel(relName);
     if(ret >= 0) {
@@ -150,4 +152,52 @@ int Schema::deleteRel(char relName[]) {
        correct, it should not reach that point. That error could only occur
        if the BlockBuffer was initialized with an invalid block number.
     */
+}
+
+int Schema::createIndex(char *relName, char *attrName) {
+    // The system catalogs are protected from user-created indexes.
+    if (!strcmp(relName, RELCAT_RELNAME) || !strcmp(relName, ATTRCAT_RELNAME)) {
+        return E_NOTPERMITTED;
+    }
+
+    // CREATE INDEX is only valid for a relation already open in the cache.
+    int relId = OpenRelTable::getRelId(relName);
+    if (relId == E_RELNOTOPEN) {
+        return E_RELNOTOPEN;
+    }
+
+    // The B+ tree layer builds and attaches the index to the attribute metadata.
+    return BPlusTree::bPlusCreate(relId, attrName);
+}
+
+int Schema::dropIndex(char *relName, char *attrName) {
+    // The system catalogs are protected from user index changes.
+    if (!strcmp(relName, RELCAT_RELNAME) || !strcmp(relName, ATTRCAT_RELNAME)) {
+        return E_NOTPERMITTED;
+    }
+
+    // Resolve the open relation before looking up its attribute metadata.
+    int relId = OpenRelTable::getRelId(relName);
+    if (relId == E_RELNOTOPEN) {
+        return E_RELNOTOPEN;
+    }
+
+    AttrCatEntry entry;
+    int ret = AttrCacheTable::getAttrCatEntry(relId, attrName, &entry);
+    if (ret != SUCCESS) {
+        return E_ATTRNOTEXIST;
+    }
+
+    if (entry.rootBlock == -1) {
+        return E_NOINDEX;
+    }
+
+    // Free every node in the tree before clearing its catalog root pointer.
+    ret = BPlusTree::bPlusDestroy(entry.rootBlock);
+    if (ret != SUCCESS) {
+        return ret;
+    }
+
+    entry.rootBlock = -1;
+    return AttrCacheTable::setAttrCatEntry(relId, attrName, &entry);
 }

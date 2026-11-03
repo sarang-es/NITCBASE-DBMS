@@ -316,6 +316,25 @@ int OpenRelTable::closeRel(int relId) {
         RecBuffer relCatBlock(recId.block);
         relCatBlock.setRecord(record, recId.slot);
     }
+
+    // Persist modified attribute catalog entries before freeing this relation's cache.
+    for (AttrCacheEntry *entry = AttrCacheTable::attrCache[relId]; entry != nullptr;
+         entry = entry->next) {
+        if (!entry->dirty) {
+            continue;
+        }
+
+        // Convert the cached fields back to the record representation on disk.
+        Attribute record[ATTRCAT_NO_ATTRS];
+        AttrCacheTable::attrCatEntryToRecord(&entry->attrCatEntry, record);
+
+        // Each cache node remembers the catalog record's block and slot.
+        RecBuffer attrCatBlock(entry->recId.block);
+        int ret = attrCatBlock.setRecord(record, entry->recId.slot);
+        if (ret != SUCCESS) {
+            return ret;
+        }
+    }
     
     // release the memory allocated in rel cat for this relation
     if(RelCacheTable::relCache[relId] != nullptr) {

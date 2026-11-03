@@ -31,13 +31,13 @@ int Frontend::alter_table_rename_column(char relname[ATTR_SIZE], char attrname_f
 }
 
 int Frontend::create_index(char relname[ATTR_SIZE], char attrname[ATTR_SIZE]) {
-  // Schema::createIndex
-  return SUCCESS;
+  // The schema layer validates the relation and builds the B+ tree.
+  return Schema::createIndex(relname, attrname);
 }
 
 int Frontend::drop_index(char relname[ATTR_SIZE], char attrname[ATTR_SIZE]) {
-  // Schema::dropIndex
-  return SUCCESS;
+  // The schema layer validates the relation and removes the B+ tree.
+  return Schema::dropIndex(relname, attrname);
 }
 
 int Frontend::insert_into_table_values(char relname[ATTR_SIZE], int attr_count, char attr_values[][ATTR_SIZE]) {

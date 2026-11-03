@@ -360,7 +360,34 @@ int BlockAccess::insert(int relId, Attribute *record) {
     relCatBuf.numRecs++;
     RelCacheTable::setRelCatEntry(relId, &relCatBuf);
 
-    return SUCCESS;
+    // Keep every existing index in sync with the newly inserted record.
+    int result = SUCCESS;
+    for (int offset = 0; offset < relCatBuf.numAttrs; ++offset) {
+        AttrCatEntry attr;
+        int ret = AttrCacheTable::getAttrCatEntry(relId, offset, &attr);
+        if (ret != SUCCESS) {
+            return ret;
+        }
+
+        // Attributes without an index need no B+ tree update.
+        if (attr.rootBlock == -1) {
+            continue;
+        }
+
+        // Store the new value and the record's location in the attribute index.
+        ret = BPlusTree::bPlusInsert(relId, attr.attrName, record[offset], rec_id);
+        if (ret == E_DISKFULL) {
+            // The index was released because it could not grow; continue with others.
+            result = E_INDEX_BLOCKS_RELEASED;
+            continue;
+        }
+
+        if (ret != SUCCESS) {
+            return ret;
+        }
+    }
+
+    return result;
 }
 
 int BlockAccess::search(int relId, Attribute *record, char attrName[ATTR_SIZE], Attribute attrVal, int op) {
@@ -463,7 +490,11 @@ int BlockAccess::deleteRelation(char relName[ATTR_SIZE]) {
         Attribute record[ATTRCAT_NO_ATTRS];
         recBuffer.getRecord(record, attrCatRecId.slot);
         
-        int rootBlock = record[ATTRCAT_ROOT_BLOCK_INDEX].nVal;// this will be used later
+        // Delete this attribute's index before removing its catalog record.
+        int rootBlock = record[ATTRCAT_ROOT_BLOCK_INDEX].nVal;
+        if (rootBlock != -1) {
+            BPlusTree::bPlusDestroy(rootBlock);
+        }
 
         HeadInfo attrCatHeader;
         recBuffer.getHeader(&attrCatHeader);
@@ -512,13 +543,6 @@ int BlockAccess::deleteRelation(char relName[ATTR_SIZE]) {
             recBuffer.releaseBlock();
         }
 
-        /*
-        // (the following part is only relevant once indexing has been implemented)
-        // if index exists for the attribute (rootBlock != -1), call bplus destroy
-        if (rootBlock != -1) {
-            // delete the bplus tree rooted at rootBlock using BPlusTree::bPlusDestroy()
-        }
-		*/
     }
 
     // Now delete the entries of this relation from relation catalog
